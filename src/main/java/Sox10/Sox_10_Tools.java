@@ -10,6 +10,7 @@ import ij.gui.Roi;
 import ij.io.FileSaver;
 import ij.measure.Calibration;
 import ij.plugin.Duplicator;
+import ij.plugin.ImageCalculator;
 import ij.process.AutoThresholder;
 import ij.process.ImageProcessor;
 import java.awt.Color;
@@ -68,7 +69,7 @@ public class Sox_10_Tools {
     private double sigma2 = 4;
     // Dog parameters
     private Calibration cal = new Calibration(); 
-    public boolean olig2 = false;
+    public boolean vessel = false;
     private boolean doF = false;
     private double radiusNei = 50; //neighboring radius
     private int nbNei = 10; // K neighborg
@@ -141,7 +142,7 @@ public class Sox_10_Tools {
     public String[] findChannels (String imageName, IMetadata meta, ImageProcessorReader reader) throws DependencyException, ServiceException, FormatException, IOException {
         int chs = reader.getSizeC();
         if (chs == 3)
-            olig2 = true;
+            vessel = true;
         String[] channels = new String[chs];
         String imageExt =  FilenameUtils.getExtension(imageName);
         switch (imageExt) {
@@ -156,7 +157,7 @@ public class Sox_10_Tools {
                 break;
             case "lif" :
                 for (int n = 0; n < chs; n++) 
-                    if (meta.getChannelID(0, n) == null)
+                    if (meta.getChannelID(0, n) == null || meta.getChannelName(0, n) == null)
                         channels[n] = Integer.toString(n);
                     else 
                         channels[n] = meta.getChannelName(0, n).toString();
@@ -464,14 +465,14 @@ public class Sox_10_Tools {
      * @return 
      */
     public int[] dialog(String[] channels) {
-        String[] chNames = (channels.length == 2) ? new String[]{"Nucleus/Vessel", "TF"} : new String[]{"Nucleus", "Vessel", "TF"};
+        String[] chNames = new String[]{"Vessel1", "Vessel2", "Sox"};
         GenericDialogPlus gd = new GenericDialogPlus("Parameters");
         gd.setInsets​(0, 80, 0);
         gd.addImage(icon);
         gd.addMessage("Channels selection", Font.getFont("Monospace"), Color.blue);
         int index = 0;
-        for (String chName : channels) {
-            gd.addChoice(chNames[index]+" : ", channels, channels[index]);
+        for (String chName : chNames) {
+            gd.addChoice(chName+" : ", channels, channels[index]);
             index++;
         }
         String[] methods = AutoThresholder.getMethods();
@@ -492,7 +493,7 @@ public class Sox_10_Tools {
         gd.addCheckbox("Compute distance to vessel", false);
         gd.addChoice("Vessel thresholding method :", methods, vesselThMet);
         gd.showDialog();
-        int[] chChoices = new int[channels.length];
+        int[] chChoices = new int[chNames.length];
         for (int n = 0; n < chChoices.length; n++) {
             chChoices[n] = ArrayUtils.indexOf(channels, gd.getNextChoice());
         }
@@ -507,7 +508,7 @@ public class Sox_10_Tools {
         radiusNei = gd.getNextNumber();
         nbNei = (int)gd.getNextNumber();
         doF = gd.getNextBoolean();
-        olig2 = gd.getNextBoolean();
+        vessel = gd.getNextBoolean();
         vesselThMet = gd.getNextChoice();
         if (gd.wasCanceled())
                 chChoices = null;
@@ -539,7 +540,6 @@ public class Sox_10_Tools {
         return(pmlPop);
     } 
     
-
     
     /**
      * Create cells population image
@@ -548,23 +548,23 @@ public class Sox_10_Tools {
      * @param pathName
 
      */
-    public void saveCellsImage(Objects3DPopulation cellPop, Objects3DPopulation olig2Pop, ImagePlus img, String pathName) {
+    public void saveCellsImage(Objects3DPopulation cellPop, Objects3DPopulation vesselPop, ImagePlus img, String pathName) {
         ImageHandler imhCell = ImageHandler.wrap(img).createSameDimensions();
-        if (olig2) {
+        if (vessel) {
             for (int i = 0; i < cellPop.getNbObjects(); i++) {
                 Object3D obj = cellPop.getObject(i);
                 String name = obj.getName().substring(1,obj.getName().length()-1);
                 double dist = Double.parseDouble(name);
                 obj.draw(imhCell, (float)dist*10);
             }
-            olig2Pop.draw(imhCell, 255);
+            vesselPop.draw(imhCell, 255);
         }
         else
             cellPop.draw(imhCell, 255);
         // save image for objects population
         ImagePlus imgCells = imhCell.getImagePlus();
         imgCells.setCalibration(cal);
-        if (olig2) {
+        if (vessel) {
             IJ.run(imgCells, "Fire", "");
             IJ.run(imgCells, "Calibrate...", "function=None unit=*10µm");
             IJ.run(imgCells, "Calibration Bar...", "location=[Upper Right] fill=White label=Black number=5 decimal=2 font=12 zoom=1 overlay show");
@@ -832,7 +832,7 @@ public class Sox_10_Tools {
     * @param outDirResults results file
      * @throws java.io.IOException
     **/
-    public void computeNucParameters(Objects3DPopulation cellPop, Objects3DPopulation olig2Pop, ArrayList<Double> dist, ArrayList<Double> diam, ImagePlus imgCell, String roiName, Roi roi,
+    public void computeNucParameters(Objects3DPopulation cellPop, Objects3DPopulation vesselPop, ArrayList<Double> dist, ArrayList<Double> diam, ImagePlus imgCell, String roiName, Roi roi,
         String imgName, String outDirResults) throws IOException {
         
         DescriptiveStatistics cellIntensity = new DescriptiveStatistics();
@@ -853,10 +853,10 @@ public class Sox_10_Tools {
             cellVolume.addValue(cellObj.getVolumeUnit());
             cellVolumeSum += cellObj.getVolumeUnit();
             double vesselDist = Double.NaN;
-            if (olig2) {
-                Object3D vesselObj = olig2Pop.closestBorder(cellObj);
+            if (vessel) {
+                Object3D vesselObj = vesselPop.closestBorder(cellObj);
                 vesselDist = cellObj.distBorderUnit(vesselObj);
-                getDistNeighbors(cellObj, olig2Pop, cellVesselNbNeighborsDistMean, cellVesselNbNeighborsDistMax);
+                getDistNeighbors(cellObj, vesselPop, cellVesselNbNeighborsDistMean, cellVesselNbNeighborsDistMax);
                 outPutDistances.write(imgName+"\t"+roiName+"\t"+cellObj.getVolumeUnit()+"\t"+alldistances.getValue(i)+"\t"+vesselDist+"\n");
                 outPutDistances.flush();
             }
@@ -875,11 +875,11 @@ public class Sox_10_Tools {
             sdiF = temp[0];
             areaCurves = temp[1];
         }
-        double olig2DistMean = 0;
-        double olig2DiamMean = 0;
-        if (olig2) {
-            olig2DistMean = dist.stream().mapToDouble(val -> val).average().orElse(0.0);
-            olig2DiamMean = diam.stream().mapToDouble(val -> val).average().orElse(0.0);
+        double vesselDistMean = 0;
+        double vesselDiamMean = 0;
+        if (vessel) {
+            vesselDistMean = dist.stream().mapToDouble(val -> val).average().orElse(0.0);
+            vesselDiamMean = diam.stream().mapToDouble(val -> val).average().orElse(0.0);
         }
         double minDistCenterMean = alldistances.getMean(); 
         double minDistCenterSD = alldistances.getStdDev();
@@ -900,7 +900,7 @@ public class Sox_10_Tools {
         
         outPutResults.write(imgName+"\t"+roiName+"\t"+roiVol+"\t"+cellPop.getNbObjects()+"\t"+cellIntMean+"\t"+cellIntSD+"\t"+cellVolumeMean+"\t"+
                 cellVolumeSD+"\t"+cellVolumeSum+"\t"+minDistCenterMean+"\t"+minDistCenterSD+"\t"+neiMeanMean+"\t"+neiMeanSD+"\t"+neiMaxMean+"\t"+neiMaxSD
-                +"\t"+areaCurves+"\t"+sdiF+"\t"+olig2DistMean+"\t"+olig2DiamMean+"\t"+neiVesselMeanMean+"\t"+neiVesselMeanSD+"\t"+neiVesselMaxMean
+                +"\t"+areaCurves+"\t"+sdiF+"\t"+vesselDistMean+"\t"+vesselDiamMean+"\t"+neiVesselMeanMean+"\t"+neiVesselMeanSD+"\t"+neiVesselMaxMean
                 +"\t"+neiVesselMaxSD+"\n");
         
         outPutResults.flush();

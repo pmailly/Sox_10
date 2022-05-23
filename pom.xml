@@ -150,12 +150,12 @@
         <repositories>
             <repository>
 		<id>imagej.public</id>
-		<url>http://maven.imagej.net/content/groups/public</url>
+		<url>https://maven.imagej.net/content/groups/public</url>
             </repository>
             <repository>
                 <id>ome</id>
                 <name>Bio-Formats Repo</name>
-                <url>http://artifacts.openmicroscopy.org/artifactory/maven</url>
+                <url>https://artifacts.openmicroscopy.org/artifactory/maven</url>
             </repository>
             <repository>
                 <id>jitpack.io</id>
